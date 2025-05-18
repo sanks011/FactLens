@@ -1,4 +1,4 @@
-import firebaseService from "./firebase-service-new.js";
+import firebaseService from "./firebase-service-v3.js";
 
 // Initialize Firebase when the popup loads
 window.addEventListener('DOMContentLoaded', async () => {
@@ -28,13 +28,38 @@ function checkAuthState() {
       document.getElementById("factCheck").disabled = false;
       document.getElementById("result").innerText = `Signed in as ${user.displayName || 'User'}`;
       console.log("User authenticated:", user.displayName);
+      
+      // Get extension debug data
+      const extensionId = chrome.runtime.id;
+      const redirectURL = `https://${extensionId}.chromiumapp.org/`;
+      
+      // Store debug info for troubleshooting
+      const debugData = {
+        extensionId,
+        redirectURL,
+        authTime: new Date().toISOString()
+      };
+      chrome.storage.local.set({ 'factle_debug_data': debugData });
+      
+      // Enhances success message with X profile info
+      if (user.photoURL) {
+        document.getElementById("result").innerHTML = `
+          <div class="user-info">
+            <img src="${user.photoURL}" alt="Profile" class="profile-img">
+            <span>Signed in as ${user.displayName || 'User'}</span>
+          </div>
+        `;
+      }
     } else {
       // User is not signed in
       document.getElementById("signIn").style.display = "block";
       document.getElementById("signIn").disabled = false;
       document.getElementById("signOut").style.display = "none";
       document.getElementById("factCheck").disabled = true;
-      document.getElementById("result").innerText = "Please sign in to fact-check.";
+      document.getElementById("result").innerHTML = `
+        <p>Please sign in with X to fact-check content.</p>
+        <p class="note">This extension requires X authentication to access Grok.</p>
+      `;
       console.log("No user authenticated");
     }
   });
@@ -42,7 +67,7 @@ function checkAuthState() {
 
 document.getElementById("signIn").addEventListener("click", async () => {
   try {
-    document.getElementById("result").innerText = "Signing in with Twitter...";
+    document.getElementById("result").innerText = "Starting Twitter sign-in...";
     document.getElementById("signIn").disabled = true;
     
     console.log("Attempting Twitter sign-in");
@@ -53,26 +78,63 @@ document.getElementById("signIn").addEventListener("click", async () => {
       throw new Error("Twitter authentication not available");
     }
     
+    // Update UI to inform user about the popup
+    document.getElementById("result").innerHTML = `
+      <div class="twitter-auth-info">
+        <p>A new window will open for Twitter authentication.</p>
+        <p>Please click "Allow" when prompted to grant access.</p>
+        <p>This extension will <strong>not</strong> post to your account.</p>
+      </div>
+    `;
+    
     // Sign in with Twitter using our service
     console.log("Calling signInWithTwitter");
-    const result = await firebaseService.signInWithTwitter();
-    console.log("Twitter sign-in result:", result);
-    
-    if (!result || !result.user) {
-      throw new Error("Sign-in failed - no user returned");
-    }
-    
-    const { user, credential } = result;
-    
-    // Store user data in Realtime Database
-    console.log("Saving user data");
-    await firebaseService.saveUserData(user, credential);
-    console.log("User data saved");
+      // Sign in with Twitter using our service after a short delay
+    setTimeout(async () => {
+      try {
+        const result = await firebaseService.signInWithTwitter();
+        console.log("Twitter sign-in result:", result);
+        
+        if (!result || !result.user) {
+          throw new Error("Sign-in failed - no user returned");
+        }
+        
+        const { user, credential } = result;
+        
+        // Store user data in Realtime Database
+        console.log("Saving user data");
+        document.getElementById("result").innerText = "Authentication successful. Saving user data...";
+        await firebaseService.saveUserData(user, credential);
+        console.log("User data saved");
 
-    // UI updates will happen in the onAuthStateChanged handler
-    document.getElementById("result").innerText = `Signed in as ${user.displayName || 'User'}`;
+        // UI updates will happen in the onAuthStateChanged handler
+        document.getElementById("result").innerText = `Signed in as ${user.displayName || 'User'}`;
+      } catch (error) {
+        console.error("Twitter sign-in error in setTimeout:", error);
+        
+        // Format error message for better user experience
+        let errorMessage = error.message || 'Sign-in failed';
+        let formattedError = `<div class="error-message">`;
+        
+        // Detect specific errors and show helpful messages
+        if (errorMessage.includes("canceled")) {
+          formattedError += `<p>Authentication was canceled. Please try again.</p>`;
+        } else if (errorMessage.includes("not registered")) {
+          formattedError += `<p>Configuration error: The redirect URL is not registered in Twitter Developer Portal.</p>
+                             <p>Please contact the developer to fix this issue.</p>`;
+        } else if (errorMessage.includes("OAuth2 not granted")) {
+          formattedError += `<p>Twitter permissions were not granted. Please allow the requested permissions when prompted.</p>`;
+        } else {
+          formattedError += `<p>Error: ${errorMessage}</p>`;
+        }
+        
+        formattedError += `</div>`;
+        document.getElementById("result").innerHTML = formattedError;
+        document.getElementById("signIn").disabled = false;
+      }
+    }, 500); // Small delay to ensure UI updates before popup opens
   } catch (error) {
-    console.error("Twitter sign-in error:", error);
+    console.error("Twitter sign-in setup error:", error);
     document.getElementById("result").innerText = `Error: ${error.message || 'Sign-in failed'}`;
     document.getElementById("signIn").disabled = false;
   }
@@ -108,45 +170,143 @@ async function factCheckWithGrok(text) {
   }
 
   try {
-    console.log("Sending fact-check request for user:", user.uid);
+    console.log("Starting fact-check for user:", user.uid);
     console.log("Text length:", text ? text.length : 0);
     
-    // Truncate text if it's too long (API might have limits)
+    // Truncate text if it's too long (Grok might have input limits)
     const truncatedText = text && text.length > 5000 ? text.substring(0, 5000) : text;
     
-    const response = await fetch("http://localhost:3000/fact-check", {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${user.uid}` // Add auth header
-      },
-      body: JSON.stringify({ 
-        text: truncatedText, 
-        userId: user.uid
-      })
+    document.getElementById("result").innerText = "Connecting to Grok... (a new tab will open briefly)";
+    
+    // Send a message to the background script to perform the fact check
+    const response = await new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { action: "factCheck", text: truncatedText },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else {
+            resolve(response);
+          }
+        }
+      );
     });
     
     // Hide loading state
     document.getElementById("loading").style.display = "none";
     document.getElementById("factCheck").disabled = false;
     
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Server error (${response.status}): ${errorText}`);
+    if (!response || !response.success) {
+      throw new Error(response?.error || "Failed to get response from Grok");
     }
     
-    const data = await response.json();
-    if (data.error) {
-      document.getElementById("result").innerText = `Error: ${data.error}`;
-    } else {
-      document.getElementById("result").innerText = data.result || "No result returned from fact-check.";
-    }
+    // Format and display the result
+    const resultElement = document.getElementById("result");
+    resultElement.innerHTML = formatGrokResult(response.result);
   } catch (error) {
     document.getElementById("loading").style.display = "none";
     document.getElementById("factCheck").disabled = false;
-    document.getElementById("result").innerText = `Error: ${error.message || "Could not contact fact-check server."}`;
-    console.error(error);
+    document.getElementById("result").innerText = `Error: ${error.message || "Could not complete fact check with Grok."}`;
+    console.error("Fact check error:", error);
   }
+}
+
+// Format Grok's response for better readability and visual appeal
+function formatGrokResult(result) {
+  if (!result) return "No results were returned.";
+
+  // Clean up the result text
+  result = result.trim()
+    .replace(/\n{3,}/g, '\n\n') // Normalize multiple line breaks
+    .replace(/^\s*Grok:\s*/i, ''); // Remove "Grok:" prefix if present
+  
+  // Add header to the fact check result
+  let output = `<div class="fact-check-result">
+    <div class="fact-check-header">
+      <h3>Fact Check Results</h3>
+      <div class="powered-by">Powered by Grok AI on X</div>
+    </div>`;
+
+  // Look for claims/facts structure in the response
+  const claimRegex = /(?:Claim|Statement|Fact)\s*(?:\d+)?:\s*["']?(.+?)["']?(?=\s*(?:True|False|Accurate|Inaccurate|Misleading|Partially))/gi;
+  let claimsFound = false;
+  let match;
+  let claimsHtml = '';
+  
+  // Extract claims and their verdicts
+  while ((match = claimRegex.exec(result)) !== null) {
+    claimsFound = true;
+    const claim = match[1].trim();
+    const afterClaim = result.slice(match.index + match[0].length, match.index + match[0].length + 100);
+    
+    let verdict = 'Unknown';
+    let verdictClass = 'verdict-unknown';
+    
+    // Determine verdict type
+    if (/true|accurate|correct/i.test(afterClaim)) {
+      verdict = 'True';
+      verdictClass = 'verdict-true';
+    } else if (/false|inaccurate|incorrect|misleading/i.test(afterClaim)) {
+      verdict = 'False';
+      verdictClass = 'verdict-false';
+    } else if (/partially|partly|somewhat/i.test(afterClaim)) {
+      verdict = 'Partially True';
+      verdictClass = 'verdict-partial';
+    }
+    
+    // Extract explanation (text between verdict and next claim/end)
+    const endOfVerdict = result.indexOf(verdict, match.index + match[0].length) + verdict.length;
+    const nextClaimMatch = claimRegex.exec(result);
+    claimRegex.lastIndex = match.index + match[0].length; // Reset regex position
+    
+    const explanationEndPos = nextClaimMatch ? nextClaimMatch.index : result.length;
+    let explanation = result.slice(endOfVerdict, explanationEndPos).trim();
+    explanation = explanation.replace(/^[.:,;]\s*/, ''); // Remove leading punctuation
+    
+    // Create HTML for this claim
+    claimsHtml += `
+      <div class="fact-claim">
+        <div class="claim-text">"${claim}"</div>
+        <div class="verdict ${verdictClass}">${verdict}</div>
+        <div class="explanation">${explanation}</div>
+      </div>
+    `;
+  }
+  
+  // If we successfully parsed claims, use the structured format
+  if (claimsFound) {
+    output += `<div class="structured-facts">${claimsHtml}</div>`;
+  } else {
+    // Otherwise, fall back to paragraph-based formatting
+    const paragraphs = result.split('\n\n').filter(p => p.trim());
+    
+    const formatted = paragraphs.map(paragraph => {
+      // Highlight "True" or "Fact: True" statements in green
+      paragraph = paragraph.replace(
+        /(Fact:|Statement:|Claim:)?\s*(True|Accurate|Correct)\b/gi, 
+        '$1 <span class="true-statement">$2</span>'
+      );
+      
+      // Highlight "False" or "Fact: False" statements in red
+      paragraph = paragraph.replace(
+        /(Fact:|Statement:|Claim:)?\s*(False|Inaccurate|Incorrect|Misleading)\b/gi, 
+        '$1 <span class="false-statement">$2</span>'
+      );
+      
+      // Highlight "Partially" statements in orange
+      paragraph = paragraph.replace(
+        /(Fact:|Statement:|Claim:)?\s*(Partially True|Partly True|Somewhat True)\b/gi, 
+        '$1 <span class="partial-statement">$2</span>'
+      );
+      
+      return `<p>${paragraph}</p>`;
+    }).join('');
+    
+    output += formatted;
+  }
+  
+  output += '</div>';
+  return output;
 }
 
 document.getElementById("factCheck").addEventListener("click", () => {

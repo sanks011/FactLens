@@ -1,4 +1,6 @@
 // Background script for FactLens Chrome Extension
+import grokService from './grok-service.js';
+
 console.log("FactLens background script loaded");
 
 // Listen for installation event
@@ -7,6 +9,9 @@ chrome.runtime.onInstalled.addListener(() => {
   
   // Initialize Firebase in the background for persistent authentication
   initFirebaseInBackground();
+  
+  // Initialize the Grok service
+  grokService.initialize();
 });
 
 // Handle messages from content scripts or popup
@@ -34,6 +39,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false; // Synchronous response
   }
   
+  if (message.action === 'factCheck') {
+    // Handle fact check requests
+    console.log("Fact check request received in background");
+    
+    // Use the grokService to perform the fact check
+    grokService.factCheck(message.text)
+      .then(result => {
+        console.log("Fact check completed successfully");
+        sendResponse({ success: true, result });
+      })
+      .catch(error => {
+        console.error("Fact check error:", error);
+        sendResponse({ success: false, error: error.message });
+      });
+    return true; // Return true to indicate async response
+  }
+  
   return true; // Return true for async response
 });
 
@@ -47,13 +69,27 @@ function initFirebaseInBackground() {
 // Handle Twitter sign-in
 async function handleTwitterSignIn() {
   try {
-    // This function will be implemented with Chrome identity API
-    // when we receive a signInWithTwitter message from popup
     console.log("Twitter sign-in handler in background script");
+      // Import the Firebase service dynamically
+    const module = await import('./firebase-service-v3.js');
+    const firebaseAuthService = module.default;
     
-    // This is just a placeholder - the actual implementation
-    // happens in firebase-service.js
-    return { user: null };
+    // Initialize Firebase if needed
+    if (!firebaseAuthService.initialized) {
+      console.log("Initializing Firebase in background");
+      await firebaseAuthService.initialize();
+    }
+    
+    // Perform the Twitter sign-in
+    console.log("Calling Twitter sign-in from background");
+    const result = await firebaseAuthService.signInWithTwitter();
+    
+    // Save user data if sign-in was successful
+    if (result && result.user) {
+      await firebaseAuthService.saveUserData(result.user, result.credential);
+    }
+    
+    return result;
   } catch (error) {
     console.error("Background Twitter sign-in error:", error);
     throw error;

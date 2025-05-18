@@ -2,20 +2,20 @@
   "manifest_version": 3,
   "name": "FactLens",
   "version": "1.0",
-  "description": "Fact-checks website using Grok on X",
-  "permissions": [
+  "description": "Fact-checks website using Grok on X",  "permissions": [
     "activeTab",
     "storage",
     "identity",
+    "scripting",
+    "tabs",
     "https://*.x.com/*",
     "https://*.grok.com/*",
+    "https://grok.x.com/*",
     "https://*.twitter.com/*",
-    "https://*.googleapis.com/*"
-  ],  "host_permissions": [
+    "https://*.googleapis.com/*"  ],"host_permissions": [
     "https://*.firebaseapp.com/*",
     "https://*.firebase.google.com/*"
-  ],
-  "content_security_policy": {
+  ],  "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   },
   "oauth2": {
@@ -24,9 +24,9 @@
   },
   "action": {
     "default_popup": "popup.html"
-  },
-  "background": {
-    "service_worker": "background.js"
+  },  "background": {
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
@@ -34,7 +34,7 @@
       "js": ["content.js"]
     }
   ],  "web_accessible_resources": [{
-    "resources": ["firebase-cdn/*", "firebase-service.js", "firebase-service-new.js"],
+    "resources": ["firebase-cdn/*", "firebase-service.js", "firebase-service-new.js", "firebase-service-fixed.js", "firebase-service-v3.js", "grok-service.js"],
     "matches": ["<all_urls>"]
   }]
 }

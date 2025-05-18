@@ -19,12 +19,12 @@ class FirebaseAuthService {
       messagingSenderId: "443168470834",
       appId: "1:443168470834:web:52150fe8e87656ef64c92b",
       measurementId: "G-N28BE2605Q",
-      // Twitter OAuth client ID
+      // Twitter OAuth client ID - you need to get this from Twitter Developer Portal
+      // and register your chrome-extension://[YOUR-EXTENSION-ID]/ URL as a redirect URL
       twitterClientId: "21iqHVSDH2lzPSLIukYQtKOOS"
     };
   }
-  
-  // Wait for Firebase to be loaded from HTML scripts
+    // Wait for Firebase to be loaded from HTML scripts
   waitForFirebase() {
     return new Promise((resolve) => {
       const checkFirebase = () => {
@@ -34,6 +34,8 @@ class FirebaseAuthService {
           resolve();
         } else {
           console.log("Firebase not found, checking again in 100ms...");
+          // Show a more readable loading message in the console
+          console.debug("Waiting for Firebase: Make sure firebase-app.js, firebase-auth.js, and firebase-database.js are properly loaded in popup.html");
           setTimeout(checkFirebase, 100); // Check again in 100ms
         }
       };
@@ -79,8 +81,7 @@ class FirebaseAuthService {
       throw error;
     }
   }
-  
-  // Sign in with Twitter using a popup approach but with chrome.identity
+  // Sign in with Twitter using Chrome identity API
   async signInWithTwitter() {
     if (!this.initialized) {
       throw new Error('Firebase not initialized');
@@ -89,118 +90,140 @@ class FirebaseAuthService {
     try {
       console.log("Starting Twitter sign-in process");
       
-      // Create Twitter auth provider
-      const provider = new firebase.auth.TwitterAuthProvider();
+      // For Manifest V3, we'll use the Chrome Identity API directly
+      // No popup auth from Firebase since it's not allowed by CSP
+      console.log("Using Chrome Identity API for authentication");
       
-      // Try to sign in with popup - this will likely fail with CSP error, but we try anyway
-      try {
-        console.log("Attempting direct popup sign-in (may fail with CSP error)");
-        const result = await this.auth.signInWithPopup(provider);
-        const user = result.user;
-        const credential = result.credential;
-        return { user, credential };
-      } catch (popupError) {
-        console.warn("Popup sign-in failed, trying Chrome identity API:", popupError);
-        
-        // Use Chrome's identity API as a fallback
-        if (!chrome || !chrome.identity) {
-          throw new Error("Chrome identity API not available");
-        }
-        
-        // Launch web auth flow
-        return new Promise((resolve, reject) => {
-          // Get Firebase auth URL
-          const redirectUrl = chrome.identity.getRedirectURL();
-          console.log("Redirect URL:", redirectUrl);
-            // Use Firebase's Twitter Provider for authentication
-          // For Twitter OAuth 2.0 in Chrome extensions, we need to configure things carefully
+      if (!chrome || !chrome.identity) {
+        throw new Error("Chrome identity API not available");
+      }
+      
+      return new Promise((resolve, reject) => {
+          // Get the extension ID for proper redirect URL
+          const extensionId = chrome.runtime.id;
+          console.log("Extension ID:", extensionId);
+            // Properly formatted redirect URL for Twitter
+          // For Twitter OAuth to work, this exact URL must be registered in Twitter Developer Portal
+          const redirectURL = `https://${extensionId}.chromiumapp.org/`;
+          console.log("OAuth Redirect URL:", redirectURL);
           
-          // Use a Twitter-specific OAuth redirect URL from Chrome identity API
-          const redirectUrl = chrome.identity.getRedirectURL("twitter");
-          console.log("Twitter OAuth Redirect URL:", redirectUrl);
-          
-          // Important: Make sure this exact redirect URL is registered 
-          // in your Twitter Developer Portal under your app's settings
-          
-          // Create the auth URL with proper parameters
+          // Generate state for security
           const state = Math.random().toString(36).substring(2, 15);
+            // Generate a simpler code verifier for PKCE
+          const generateCodeVerifier = () => {
+            // Generate a random string for PKCE
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            let result = '';
+            const randomValues = new Uint8Array(43);
+            crypto.getRandomValues(randomValues);
+            randomValues.forEach(val => result += chars.charAt(val % chars.length));
+            return result;
+          };
+          
+          const codeVerifier = generateCodeVerifier();
+          // Store code verifier in local storage
+          chrome.storage.local.set({ 'twitter_code_verifier': codeVerifier });
+          
+          // Use the verifier directly as the challenge for simplicity 
+          // (in production would use SHA-256 hash, base64url-encoded)
+          const codeChallenge = codeVerifier;
+          
+          // Build Twitter OAuth 2.0 URL
           const authUrl = `https://twitter.com/i/oauth2/authorize` +
             `?response_type=code` +
             `&client_id=${encodeURIComponent(this.config.twitterClientId)}` +
-            `&redirect_uri=${encodeURIComponent(redirectUrl)}` +
+            `&redirect_uri=${encodeURIComponent(redirectURL)}` +
             `&scope=tweet.read%20users.read%20offline.access` +
             `&state=${encodeURIComponent(state)}` +
-            `&code_challenge=challenge` + // For simplicity not using real PKCE
-            `&code_challenge_method=plain` +
-            `&allow_signup=false`;
+            `&code_challenge=${encodeURIComponent(codeChallenge)}` +
+            `&code_challenge_method=plain`;
           
-          console.log("Launching Twitter auth flow with URL:", authUrl);
+          console.log("Launching auth flow with URL:", authUrl);
+            console.log("Launching Web Auth Flow with interactive=true");
           
-          // Launch the auth flow with interactive true to allow user interaction
           chrome.identity.launchWebAuthFlow({
             url: authUrl,
             interactive: true
           }, async (responseUrl) => {
+            console.log("Auth flow completed, checking response");
+            
+            // Handle errors from chrome.identity
             if (chrome.runtime.lastError) {
-              console.error("Chrome identity error:", chrome.runtime.lastError);
+              const errorMsg = chrome.runtime.lastError.message;
+              console.error("Chrome Identity Error:", errorMsg);
               
-              // Check if user cancelled
-              if (chrome.runtime.lastError.message.includes("canceled")) {
-                reject(new Error("Authentication was cancelled by the user"));
+              // Show more specific error messages
+              if (errorMsg.includes("canceled")) {
+                reject(new Error("Authentication was canceled by the user"));
+              } else if (errorMsg.includes("not registered")) {
+                reject(new Error("The redirect URL is not registered in Twitter Developer Portal. Please register the exact URL: " + redirectURL));
+              } else if (errorMsg.includes("OAuth2 not granted")) {
+                reject(new Error("Permission not granted. Please ensure all required permissions are requested."));
               } else {
-                reject(new Error(`Authentication error: ${chrome.runtime.lastError.message}`));
+                reject(new Error(`Chrome Identity Error: ${errorMsg}`));
               }
               return;
             }
             
             if (!responseUrl) {
-              console.error("No response URL returned");
-              reject(new Error("Authentication failed - no response received"));
+              reject(new Error("No response URL returned from authentication"));
               return;
             }
             
-            console.log("Got response URL:", responseUrl);
-            
             try {
-              // Parse the response URL to extract the authorization code
+              console.log("Response URL:", responseUrl);
+              
+              // Parse response URL
               const url = new URL(responseUrl);
               
-              // Check for error parameter first
-              const errorParam = url.searchParams.get("error");
-              if (errorParam) {
-                throw new Error(`Twitter authorization error: ${errorParam}`);
+              // Check for error in the URL
+              if (url.searchParams.has("error")) {
+                const error = url.searchParams.get("error");
+                const description = url.searchParams.get("error_description") || "Unknown error";
+                throw new Error(`Twitter OAuth error: ${error} - ${description}`);
               }
               
-              // Extract code from URL search params
-              const code = url.searchParams.get("code");
+              // Check state parameter matches for security
+              const returnedState = url.searchParams.get("state");
+              if (returnedState !== state) {
+                throw new Error("OAuth state mismatch - possible CSRF attack");
+              }
               
+              // Get authorization code
+              const code = url.searchParams.get("code");
               if (!code) {
                 throw new Error("No authorization code in response");
               }
               
-              console.log("Got Twitter authorization code:", code.substring(0, 5) + "...");
+              console.log("Got authorization code:", code.substring(0, 5) + "...");
               
-              // In a production app, you would now:
-              // 1. Send this code to your backend server
-              // 2. Backend exchanges it for access & refresh tokens
-              // 3. Backend creates a custom Firebase token
-              // 4. Your extension signs in with that custom token
+              // In a real implementation, you would:
+              // 1. Send this code to your server
+              // 2. Server exchanges it for access token using client_secret
+              // 3. Server creates a Firebase custom token
+              // 4. Client signs in with that custom token
               
-              // Since we don't have a backend, we'll simulate a successful sign-in
+              // For demo purposes, we're using anonymous sign-in
+              console.log("Using anonymous sign-in for demonstration");
               const result = await this.auth.signInAnonymously();
               
-              // Update user profile to simulate Twitter login
+              // Update the profile to simulate Twitter login
               await result.user.updateProfile({
-                displayName: "Twitter User",
+                displayName: "X User", 
                 photoURL: "https://abs.twimg.com/sticky/default_profile_images/default_profile_normal.png"
               });
               
-              resolve({ 
+              resolve({
                 user: result.user,
-                credential: { provider: "twitter.com" } 
+                // Create mock credential for database storage
+                credential: {
+                  providerId: "twitter.com",
+                  signInMethod: "oauth",
+                  accessToken: "mock-token-for-demonstration"
+                }
               });
             } catch (error) {
-              console.error("Error completing authentication:", error);
+              console.error("Error processing OAuth response:", error);
               reject(error);
             }
           });
@@ -259,6 +282,7 @@ class FirebaseAuthService {
         // Store Twitter access info if available
         twitterAuth: credential ? {
           provider: credential.providerId || "twitter.com",
+          accessToken: credential.accessToken ? "present" : "none",
           lastLogin: Date.now()
         } : null,
         lastActive: Date.now()
