@@ -1,0 +1,93 @@
+body {
+  width: 350px;
+  padding: 16px;
+  font-family: 'Segoe UI', Arial, sans-serif;
+  margin: 0;
+  color: #333;
+  background-color: #f8f9fa;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+h1 {
+  color: #1da1f2;
+  margin-bottom: 16px;
+  font-size: 24px;
+}
+
+button {
+  margin: 8px 0;
+  padding: 10px;
+  width: 100%;
+  cursor: pointer;
+  border: none;
+  border-radius: 20px;
+  font-weight: bold;
+  transition: background-color 0.3s;
+  font-size: 14px;
+}
+
+#signIn {
+  background-color: #1da1f2;
+  color: white;
+}
+
+#signIn:hover {
+  background-color: #0d8bd9;
+}
+
+#signOut {
+  background-color: #e0e0e0;
+  color: #333;
+}
+
+#signOut:hover {
+  background-color: #ccc;
+}
+
+#factCheck {
+  background-color: #4caf50;
+  color: white;
+}
+
+#factCheck:hover {
+  background-color: #3d8b40;
+}
+
+#factCheck:disabled {
+  background-color: #a5d6a7;
+  cursor: not-allowed;
+}
+
+#result {
+  margin-top: 12px;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 12px;
+  width: 100%;
+  box-sizing: border-box;
+  background-color: white;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.loading-spinner {
+  border: 3px solid #f3f3f3;
+  border-top: 3px solid #1da1f2;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  animation: spin 1s linear infinite;
+  margin: 16px auto;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}

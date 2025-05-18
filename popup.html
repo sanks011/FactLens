@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>FactLens</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>FactLens</h1>
+    <button id="signIn">Sign in with X</button>
+    <button id="signOut" style="display:none">Sign Out</button>
+    <button id="factCheck" disabled>Fact-Check Page</button>
+    <div id="result">Please sign in to fact-check.</div>
+    <div id="loading" class="loading-spinner" style="display:none"></div>
+  </div>
+  
+  <!-- Include Firebase directly from local files (non-module versions) -->
+  <script src="firebase-cdn/firebase-app.js"></script>
+  <script src="firebase-cdn/firebase-auth.js"></script>
+  <script src="firebase-cdn/firebase-database.js"></script>
+  
+  <!-- Our app code -->
+  <script src="popup.js" type="module"></script>
+</body>
+</html>
