@@ -1,5 +1,5 @@
 // Background script for FactLens Chrome Extension
-import grokService from './grok-service.js';
+import grokService from './grok-service-fixed.js';
 
 console.log("FactLens background script loaded");
 

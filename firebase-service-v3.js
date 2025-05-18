@@ -41,8 +41,7 @@ class FirebaseAuthService {  constructor() {
       checkFirebase();
     });
   }
-  
-  // Initialize Firebase
+    // Initialize Firebase
   async initialize() {
     try {
       // Wait for Firebase to be loaded from scripts
@@ -71,6 +70,25 @@ class FirebaseAuthService {  constructor() {
         this.currentUser = user;
         this.authStateListeners.forEach(listener => listener(user));
       });
+      
+      // Check for existing custom auth user
+      try {
+        const customAuthHandler = (await import('./custom-auth.js')).default;
+        // Initialize custom auth and check if user exists
+        const userId = await customAuthHandler.initialize();
+        if (userId && !this.currentUser) {
+          console.log("Found existing custom auth user, restoring session");
+          const mockUser = customAuthHandler.createMockUser();
+          this.currentUser = mockUser;
+          
+          // Notify listeners
+          setTimeout(() => {
+            this.authStateListeners.forEach(listener => listener(mockUser));
+          }, 100);
+        }
+      } catch (e) {
+        console.log("Custom auth check failed:", e.message);
+      }
       
       this.initialized = true;
       console.log("Firebase fully initialized");
@@ -201,18 +219,21 @@ class FirebaseAuthService {  constructor() {
             // 3. Server creates a Firebase custom token
             // 4. Client signs in with that custom token
             
-            // For demo purposes, we're using anonymous sign-in
-            console.log("Using anonymous sign-in for demonstration");
-            const result = await this.auth.signInAnonymously();
+            // Instead of anonymous sign-in, use custom authentication
+            console.log("Using custom authentication instead of Firebase anonymous auth");
+            const customAuthHandler = (await import('./custom-auth.js')).default;
+            await customAuthHandler.initialize();
             
-            // Update the profile to simulate Twitter login
-            await result.user.updateProfile({
+            // Create a mock user that simulates Firebase user
+            const mockUser = customAuthHandler.createMockUser();
+            
+            // Update mock user profile to simulate Twitter login
+            await mockUser.updateProfile({
               displayName: "X User", 
               photoURL: "https://abs.twimg.com/sticky/default_profile_images/default_profile_normal.png"
             });
-            
-            resolve({
-              user: result.user,
+              resolve({
+              user: mockUser,
               // Create mock credential for database storage
               credential: {
                 providerId: "twitter.com",
@@ -256,8 +277,7 @@ class FirebaseAuthService {  constructor() {
       }
     };
   }
-  
-  // Save user data to database
+    // Save user data to database
   async saveUserData(user, credential) {
     if (!this.initialized) {
       throw new Error('Firebase not initialized');
@@ -271,19 +291,44 @@ class FirebaseAuthService {  constructor() {
       
       console.log("Saving user data for:", user.displayName || user.email || user.uid);
       
-      await this.database.ref(`users/${user.uid}`).set({
-        uid: user.uid,
-        displayName: user.displayName || "Anonymous User",
-        email: user.email || null,
-        photoURL: user.photoURL || null,
-        // Store Twitter access info if available
-        twitterAuth: credential ? {
-          provider: credential.providerId || "twitter.com",
-          accessToken: credential.accessToken ? "present" : "none",
-          lastLogin: Date.now()
-        } : null,
-        lastActive: Date.now()
-      });
+      try {
+        // Try to save to Firebase Database
+        await this.database.ref(`users/${user.uid}`).set({
+          uid: user.uid,
+          displayName: user.displayName || "Anonymous User",
+          email: user.email || null,
+          photoURL: user.photoURL || null,
+          // Store Twitter access info if available
+          twitterAuth: credential ? {
+            provider: credential.providerId || "twitter.com",
+            accessToken: credential.accessToken ? "present" : "none",
+            lastLogin: Date.now()
+          } : null,
+          lastActive: Date.now()
+        });
+        console.log("User data saved to Firebase Database");
+      } catch (dbError) {
+        // If Firebase Database fails, save to local storage instead
+        console.log("Could not save to Firebase DB, using local storage:", dbError.message);
+        
+        await new Promise(resolve => {
+          chrome.storage.local.set({
+            'factlens_user_data': {
+              uid: user.uid,
+              displayName: user.displayName || "Anonymous User",
+              email: user.email || null,
+              photoURL: user.photoURL || null,
+              twitterAuth: credential ? {
+                provider: credential.providerId || "twitter.com",
+                accessToken: credential.accessToken ? "present" : "none",
+                lastLogin: Date.now()
+              } : null,
+              lastActive: Date.now(),
+              savedLocally: true
+            }
+          }, resolve);
+        });
+      }
       
       console.log("User data saved successfully");
       return true;
@@ -292,15 +337,34 @@ class FirebaseAuthService {  constructor() {
       throw error;
     }
   }
-  
-  // Sign out the current user
+    // Sign out the current user
   async signOut() {
     if (!this.initialized) {
       throw new Error('Firebase not initialized');
     }
     
     try {
-      await this.auth.signOut();
+      // Try Firebase sign out first
+      try {
+        await this.auth.signOut();
+      } catch (error) {
+        console.log('Firebase sign out error (expected if using custom auth):', error.message);
+      }
+      
+      // Also clear custom auth state
+      try {
+        const customAuthHandler = (await import('./custom-auth.js')).default;
+        await customAuthHandler.clearUserData();
+      } catch (e) {
+        console.log('Custom auth handler not available:', e.message);
+      }
+      
+      // Clear current user
+      this.currentUser = null;
+      
+      // Notify listeners
+      this.authStateListeners.forEach(listener => listener(null));
+      
       console.log('User signed out');
       return true;
     } catch (error) {

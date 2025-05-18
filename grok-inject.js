@@ -1,19 +1,31 @@
-// Inject script to interact with Grok on grok.x.com
+// Inject script to interact with Grok on x.com/i/grok
 // This script is injected into the Grok page to exchange messages with our extension
 
-// Wait for the page to be fully loaded and Grok to be ready
+// Wait for the page to be fully loaded and Grok to be ready with multiple selectors
 function waitForGrokInterface() {
   return new Promise((resolve) => {
+    const selectors = [
+      'div[contenteditable="true"]',
+      'textarea[placeholder*="Talk"]',
+      'textarea[placeholder*="Ask"]',
+      'div[role="textbox"]',
+      'textarea',
+      'div[data-testid="tweetTextarea_0"]'
+    ];
+    
     const checkGrokReady = () => {
-      // Check if the text input area is ready
-      const inputArea = document.querySelector('div[contenteditable="true"]');
-      if (inputArea) {
-        console.log("Grok interface detected");
-        resolve(inputArea);
-      } else {
-        console.log("Waiting for Grok interface...");
-        setTimeout(checkGrokReady, 500);
+      // Try all selectors
+      for (const selector of selectors) {
+        const inputArea = document.querySelector(selector);
+        if (inputArea) {
+          console.log(`Grok interface detected with selector: ${selector}`);
+          resolve(inputArea);
+          return;
+        }
       }
+      
+      console.log("Waiting for Grok interface...");
+      setTimeout(checkGrokReady, 500);
     };
     
     checkGrokReady();

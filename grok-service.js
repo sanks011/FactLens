@@ -60,26 +60,43 @@ class GrokService {
       throw error;
     }
   }
-  
-  // Get Twitter tokens from storage
+    // Get Twitter tokens from storage - checks both separate keys and object format
   async _getStoredTwitterTokens() {
     return new Promise((resolve) => {
       chrome.storage.local.get([
         'twitter_access_token',
         'twitter_access_token_secret',
-        'twitter_bearer_token'
+        'twitter_bearer_token',
+        'twitter_tokens'
       ], (result) => {
+        // First check individual keys
         if (
           result.twitter_access_token &&
           result.twitter_access_token_secret &&
           result.twitter_bearer_token
         ) {
+          console.log("Found Twitter tokens as individual keys");
           resolve({
             accessToken: result.twitter_access_token,
             accessTokenSecret: result.twitter_access_token_secret,
             bearerToken: result.twitter_bearer_token
           });
-        } else {
+        } 
+        // Then check if tokens are stored as an object
+        else if (result.twitter_tokens && 
+                result.twitter_tokens.accessToken && 
+                result.twitter_tokens.accessTokenSecret &&
+                result.twitter_tokens.bearerToken) {
+          console.log("Found Twitter tokens as object");
+          resolve({
+            accessToken: result.twitter_tokens.accessToken,
+            accessTokenSecret: result.twitter_tokens.accessTokenSecret,
+            bearerToken: result.twitter_tokens.bearerToken
+          });
+        } 
+        // No tokens found
+        else {
+          console.log("No Twitter tokens found in storage");
           resolve(null);
         }
       });
@@ -107,31 +124,70 @@ class GrokService {
             bearerToken: twitterTokens.bearerToken
           }
         });
-      }      // Open a new Grok tab
+      }      // Open a new Grok tab - now using visible tab and direct x.com/i/grok URL
       chrome.tabs.create(
-        { url: "https://grok.x.com", active: false },
+        { url: "https://x.com/i/grok", active: true }, // Make tab visible and go directly to Grok
         (tab) => {
+          if (!tab || !tab.id) {
+            reject(new Error("Could not create Grok tab"));
+            return;
+          }
+
           // Store the tab ID for later
           const grokTabId = tab.id;
+          console.log("Created Grok tab with ID:", grokTabId);
+
+          // Keep track of tab status
+          let tabExists = true;
+          
+          // Check if tab exists before using it
+          const checkTabExists = async (tabId) => {
+            try {
+              return new Promise(resolve => {
+                chrome.tabs.get(tabId, tab => {
+                  const exists = !chrome.runtime.lastError && tab;
+                  resolve(exists);
+                });
+              });
+            } catch (e) {
+              console.error("Error checking tab:", e);
+              return false;
+            }
+          };
           
           // Wait for tab to load then inject our script
           chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
             if (tabId === grokTabId && changeInfo.status === 'complete') {
-              // Remove the listener
-              chrome.tabs.onUpdated.removeListener(listener);
-              
-              // Inject our script to interact with Grok
-              chrome.scripting.executeScript({
-                target: { tabId: grokTabId },
-                files: ['grok-inject.js']
-              }).then(() => {
-                console.log("Grok injection script executed");
-              }).catch(error => {
-                console.error("Error injecting script:", error);
-                responseData.error = "Failed to inject script: " + error.message;
-                responseData.completed = true;
-                chrome.tabs.remove(grokTabId);
-                reject(new Error("Failed to inject script: " + error.message));
+              // Check if tab still exists
+              checkTabExists(grokTabId).then(exists => {
+                if (!exists) {
+                  console.error("Tab no longer exists");
+                  chrome.tabs.onUpdated.removeListener(listener);
+                  reject(new Error("Grok tab was closed before script could be injected"));
+                  return;
+                }
+                
+                // Remove the listener
+                chrome.tabs.onUpdated.removeListener(listener);
+                
+                // Inject our script to interact with Grok
+                chrome.scripting.executeScript({
+                  target: { tabId: grokTabId },
+                  files: ['grok-inject.js']
+                }).then(() => {
+                  console.log("Grok injection script executed");
+                }).catch(error => {
+                  console.error("Error injecting script:", error);
+                  responseData.error = "Failed to inject script: " + error.message;
+                  responseData.completed = true;
+                  
+                  // Only try to close the tab if it still exists
+                  checkTabExists(grokTabId).then(exists => {
+                    if (exists) {
+                      chrome.tabs.remove(grokTabId).catch(() => {});
+                    }
+                    reject(new Error("Failed to inject script: " + error.message));
+                  });
               });
             }
           });

@@ -2,23 +2,25 @@
   "manifest_version": 3,
   "name": "FactLens",
   "version": "1.0",
-  "description": "Fact-checks website using Grok on X",
-  "permissions": [
+  "description": "Fact-checks website using Grok on X",  "permissions": [
     "activeTab",
     "storage",
     "identity",
     "scripting",
-    "tabs",    "https://*.x.com/*",
+    "tabs"
+  ],  
+  "host_permissions": [
+    "https://*.x.com/*",
+    "https://x.com/*",
+    "https://*.twitter.com/*",
+    "https://twitter.com/*",
     "https://*.grok.com/*",
     "https://grok.x.com/*",
-    "https://*.twitter.com/*",
-    "https://*.googleapis.com/*"
-  ],  "host_permissions": [
     "https://*.firebaseapp.com/*",
-    "https://*.firebase.google.com/*"
-  ],
-  "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
+    "https://*.firebase.google.com/*",
+    "https://*.googleapis.com/*"
+  ],  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://*.x.com https://*.twitter.com https://x.com https://twitter.com"
   },
   "oauth2": {
     "client_id": "443168470834-mmmtv34pknbjoigqu6jam8ebirlq2lmm.apps.googleusercontent.com",
@@ -35,7 +37,7 @@
       "js": ["content.js"]
     }
   ],  "web_accessible_resources": [{
-    "resources": ["firebase-cdn/*", "firebase-service.js", "firebase-service-new.js", "firebase-service-fixed.js", "firebase-service-v3.js", "twitter-oauth.js", "popup-new.js", "grok-service.js", "grok-inject.js"],
+    "resources": ["firebase-cdn/*", "firebase-service.js", "firebase-service-new.js", "firebase-service-fixed.js", "firebase-service-v3.js", "twitter-oauth.js", "twitter-oauth-v2.js", "popup-new.js", "popup-new-v2.js", "popup-simple.js", "debug-mode.js", "grok-service.js", "grok-inject.js", "test-auth.js", "README.md"],
     "matches": ["<all_urls>"]
   }]
 }

@@ -1,67 +1,69 @@
-// Twitter OAuth handler for Chrome Extensions
-// Simplified to work with Manifest V3 CSP restrictions
+// Twitter Authentication Handler for FactLens
+// DIRECT MODE: Using pre-authorized tokens for Grok access
 
-// Twitter OAuth configuration
+// Twitter API configuration with direct tokens
 const TWITTER_CONFIG = {
-  clientId: "TldJdTg5bnFoMUl3akEya0pSQlM6MTpjaQ", // Updated client ID
-  clientSecret: "EawCtb3FopazjiABJYqxlGbzrMGrrLYr1lMZcgPQ6FzI3e0hJq",
-  accessToken: "1751231537427996673-OXiw1i79YGSu0lSG9fXLlEkUUakyBw",
-  accessTokenSecret: "sYhYFZz2bteNGCWuSKbupbhcord5eWLMZdBut8DJJIUmV",
-  bearerToken: "AAAAAAAAAAAAAAAAAAAAABo%2B1wEAAAAA%2BhggN9CFv7MJ1PMBhPhr%2BR0G1o0%3DlkiEJtZvCHDEj6i8knTzzQJ0lBc8wJrJjfHOZOnYk1DvBbqFpE"
+  clientId: "TldJdTg5bnFoMUl3akEya0pSQlM6MTpjaQ", // Client ID
+  clientSecret: "EawCtb3FopazjiABJYqxlGbzrMGrrLYr1lMZcgPQ6FzI3e0hJq", // Client Secret
+  accessToken: "1751231537427996673-OXiw1i79YGSu0lSG9fXLlEkUUakyBw", // Access Token
+  accessTokenSecret: "sYhYFZz2bteNGCWuSKbupbhcord5eWLMZdBut8DJJIUmV", // Access Token Secret
+  bearerToken: "AAAAAAAAAAAAAAAAAAAAABo%2B1wEAAAAA%2BhggN9CFv7MJ1PMBhPhr%2BR0G1o0%3DlkiEJtZvCHDEj6i8knTzzQJ0lBc8wJrJjfHOZOnYk1DvBbqFpE" // Bearer Token
 };
 
 /**
- * Authenticate with Twitter using Chrome Identity API
- * This function handles the OAuth 2.0 flow with Twitter
+ * Authentication method - DIRECT MODE
+ * This skips the traditional OAuth flow and uses the provided tokens directly
+ * For a production app, you'd use proper OAuth flow with a backend
  */
 async function authenticateWithTwitter() {
-  console.log("Starting Twitter OAuth process");
+  console.log("Starting Twitter Direct Authentication");
   
-  if (!chrome || !chrome.identity) {
-    throw new Error("Chrome identity API not available");
-  }
-  
-  return new Promise((resolve, reject) => {
-    try {
-      // Get extension ID for redirect URL
-      const extensionId = chrome.runtime.id;
-      console.log("Extension ID:", extensionId);
-      
-      // Properly formatted redirect URL for Twitter
-      // IMPORTANT: This exact URL must be registered in Twitter Developer Portal
-      const redirectURL = `https://${extensionId}.chromiumapp.org/`;
-      console.log("OAuth Redirect URL:", redirectURL);
-      
-      // Generate state parameter for security
-      const state = Math.random().toString(36).substring(2, 15);
-      
-      // Generate a proper code verifier for PKCE (43-128 chars)
-      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
-      let codeVerifier = '';
-      for (let i = 0; i < 64; i++) {
-        codeVerifier += chars.charAt(Math.floor(Math.random() * chars.length));
+  // Create simpler auth process without redirects
+  return new Promise((resolve) => {
+    console.log("Using pre-configured tokens for authentication");
+    
+    // Directly use the provided access tokens
+    const mockAuthResponse = {
+      code: "direct-auth-" + Math.random().toString(36).substring(2, 10),
+      redirectUri: null,
+      codeVerifier: null,
+      // Add the tokens directly
+      accessToken: TWITTER_CONFIG.accessToken,
+      accessTokenSecret: TWITTER_CONFIG.accessTokenSecret,
+      bearerToken: TWITTER_CONFIG.bearerToken
+    };
+    
+    // Store tokens in Chrome storage for Grok access
+    chrome.storage.local.set({
+      'twitter_tokens': {
+        accessToken: TWITTER_CONFIG.accessToken,
+        accessTokenSecret: TWITTER_CONFIG.accessTokenSecret,
+        bearerToken: TWITTER_CONFIG.bearerToken,
+        tokenType: 'bearer',
+        expiresAt: Date.now() + (7200 * 1000) // 2 hours from now
       }
+    }, () => {
+      console.log("Tokens stored successfully");
       
-      // Store code verifier for later
-      chrome.storage.local.set({ 'twitter_code_verifier': codeVerifier });
-      
-      // For security, we should create a proper code challenge using SHA-256
-      // But for compatibility we'll use plain challenge method
-      const codeChallenge = codeVerifier;
-      
-      // Build a Twitter OAuth URL that ensures the "Allow" button appears
-      const authUrl = 
-        `https://twitter.com/i/oauth2/authorize` +
-        `?response_type=code` +
-        `&client_id=${encodeURIComponent(TWITTER_CONFIG.clientId)}` +
-        `&redirect_uri=${encodeURIComponent(redirectURL)}` +
-        `&scope=tweet.read%20users.read%20offline.access` +
-        `&state=${encodeURIComponent(state)}` +
-        `&code_challenge=${encodeURIComponent(codeChallenge)}` +
-        `&code_challenge_method=plain` +
-        `&force_login=false` +
-        `&allow_signup=true` + 
-        `&prompt=consent`;
+      // Simulate successful auth
+      resolve(mockAuthResponse);
+    });  });
+}
+
+/**
+ * Get tokens - no need to exchange code anymore, we already have them
+ */
+async function getTwitterTokens() {
+  console.log("Getting Twitter tokens (direct mode)");
+  
+  // Simply return the pre-configured tokens
+  return {
+    accessToken: TWITTER_CONFIG.accessToken,
+    accessTokenSecret: TWITTER_CONFIG.accessTokenSecret,
+    bearerToken: TWITTER_CONFIG.bearerToken,
+    tokenType: 'bearer',
+    expiresIn: 7200
+  };
         
       console.log("Launching auth flow with URL:", authUrl);
       

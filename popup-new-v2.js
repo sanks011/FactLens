@@ -1,4 +1,4 @@
-// Updated popup.js for FactLens with direct Twitter OAuth implementation
+// Updated popup.js for FactLens with direct Twitter authentication
 import firebaseService from "./firebase-service-v3.js";
 import { authenticateWithTwitter, getTwitterTokens } from "./twitter-oauth-v2.js";
 
@@ -8,7 +8,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     document.getElementById("result").innerText = "Initializing Firebase...";
     await firebaseService.initialize();
     
-    // Debug - log the service object
     console.log("Firebase service initialized:", firebaseService);
     
     // Check auth state after Firebase is initialized
@@ -30,14 +29,9 @@ function checkAuthState() {
       document.getElementById("result").innerText = `Signed in as ${user.displayName || 'User'}`;
       console.log("User authenticated:", user.displayName);
       
-      // Get extension debug data
-      const extensionId = chrome.runtime.id;
-      const redirectURL = `https://${extensionId}.chromiumapp.org/`;
-      
-      // Store debug info for troubleshooting
+      // Store debug info
       const debugData = {
-        extensionId,
-        redirectURL,
+        uid: user.uid,
         authTime: new Date().toISOString()
       };
       chrome.storage.local.set({ 'factle_debug_data': debugData });
@@ -71,38 +65,30 @@ document.getElementById("signIn").addEventListener("click", async () => {
     document.getElementById("result").innerText = "Starting Twitter sign-in...";
     document.getElementById("signIn").disabled = true;
     
-    console.log("Attempting Twitter sign-in with dedicated OAuth handler");
+    console.log("Starting direct Twitter authentication");
     
-    // Update UI to inform user about the popup
+    // Update UI to inform user
     document.getElementById("result").innerHTML = `
       <div class="twitter-auth-info">
-        <p>A new window will open for Twitter authentication.</p>
-        <p>Please click "Allow" when prompted to grant access.</p>
-        <p>This extension will <strong>not</strong> post to your account.</p>
+        <p>Authenticating with X...</p>
+        <p>Using pre-configured authentication for FactLens.</p>
       </div>
     `;
     
     // Use our dedicated Twitter OAuth handler
     setTimeout(async () => {
       try {
-        // First authenticate with Twitter
+        // Authenticate with our direct Twitter method
         const twitterAuthResult = await authenticateWithTwitter();
-        console.log("Twitter OAuth successful:", twitterAuthResult);
-          // Exchange the code for tokens
-        const tokens = await getTwitterTokens(twitterAuthResult);
-        console.log("Got Twitter tokens:", tokens);
+        console.log("Twitter authentication successful:", twitterAuthResult);
         
-        // We should ideally use a custom Firebase Auth provider
-        // but we'll simulate with anonymous auth + profile update for now
+        // Get the tokens (already stored by authenticateWithTwitter)
+        const tokens = await getTwitterTokens();
+        console.log("Using Twitter tokens:", tokens);
+        
+        // Now sign in to Firebase
         const result = await firebaseService.auth.signInAnonymously();
         console.log("Firebase sign-in result:", result);
-        
-        // Store tokens for later use with the Grok API
-        await chrome.storage.local.set({
-          'twitter_access_token': tokens.accessToken,
-          'twitter_access_token_secret': tokens.accessTokenSecret,
-          'twitter_bearer_token': tokens.bearerToken
-        });
         
         // Update the profile with Twitter info
         await result.user.updateProfile({
@@ -112,10 +98,10 @@ document.getElementById("signIn").addEventListener("click", async () => {
         
         const user = result.user;
         
-        // Create mock Twitter credential for database
+        // Create Twitter credential for database
         const credential = {
           providerId: "twitter.com",
-          signInMethod: "oauth",
+          signInMethod: "direct-auth",
           accessToken: tokens.accessToken
         };
         
@@ -127,31 +113,18 @@ document.getElementById("signIn").addEventListener("click", async () => {
 
         // UI updates will happen in the onAuthStateChanged handler
       } catch (error) {
-        console.error("Twitter sign-in error:", error);
+        console.error("Authentication error:", error);
         
-        // Format error message for better user experience
+        // Format error message
         let errorMessage = error.message || 'Sign-in failed';
-        let formattedError = `<div class="error-message">`;
+        let formattedError = `<div class="error-message"><p>Error: ${errorMessage}</p></div>`;
         
-        // Detect specific errors and show helpful messages
-        if (errorMessage.includes("canceled")) {
-          formattedError += `<p>Authentication was canceled. Please try again.</p>`;
-        } else if (errorMessage.includes("not registered")) {
-          formattedError += `<p>Configuration error: The redirect URL is not registered in Twitter Developer Portal.</p>
-                             <p>Please contact the developer to fix this issue.</p>`;
-        } else if (errorMessage.includes("OAuth2 not granted")) {
-          formattedError += `<p>Twitter permissions were not granted. Please allow the requested permissions when prompted.</p>`;
-        } else {
-          formattedError += `<p>Error: ${errorMessage}</p>`;
-        }
-        
-        formattedError += `</div>`;
         document.getElementById("result").innerHTML = formattedError;
         document.getElementById("signIn").disabled = false;
       }
     }, 500);
   } catch (error) {
-    console.error("Twitter sign-in setup error:", error);
+    console.error("Authentication setup error:", error);
     document.getElementById("result").innerText = `Error: ${error.message || 'Sign-in failed'}`;
     document.getElementById("signIn").disabled = false;
   }

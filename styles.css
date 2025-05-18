@@ -254,3 +254,56 @@ button {
   padding: 2px 4px;
   border-radius: 3px;
 }
+
+/* Debug Mode Styling */
+.debug-panel {
+  margin-top: 20px;
+  padding: 10px;
+  border: 1px dashed #ff5500;
+  background: #fff3e0;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.debug-header {
+  font-weight: bold;
+  color: #ff5500;
+  margin-bottom: 5px;
+}
+
+.debug-options {
+  margin-bottom: 10px;
+}
+
+.debug-button {
+  background: #ff7700;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  margin-right: 8px;
+  margin-bottom: 5px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.debug-status {
+  margin-top: 8px;
+  font-style: italic;
+  color: #555;
+}
+
+/* Auth progress indicator */
+.auth-progress {
+  text-align: center;
+  padding: 10px;
+}
+
+.loading-spinner.small {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+  display: inline-block;
+  margin: 0 0 0 8px;
+  vertical-align: middle;
+}
