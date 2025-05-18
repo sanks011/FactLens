@@ -25,8 +25,7 @@ class GrokService {
     
     this.isInitialized = true;
   }
-  
-  // Run a fact check using Grok
+    // Run a fact check using Grok
   async factCheck(text) {
     if (this.isWorking) {
       throw new Error("Another fact-check is already in progress");
@@ -41,8 +40,16 @@ class GrokService {
     this.isWorking = true;
     
     try {
-      // Use X/Twitter session authentication (via cookies) to access Grok
-      const factCheckResult = await this._interactWithGrok(text);
+      // Get stored Twitter tokens for authentication
+      const twitterTokens = await this._getStoredTwitterTokens();
+      if (!twitterTokens) {
+        throw new Error("Twitter authentication required. Please sign in.");
+      }
+      
+      console.log("Using Twitter tokens for Grok authentication");
+      
+      // Use Twitter tokens to authenticate with Grok
+      const factCheckResult = await this._interactWithGrok(text, twitterTokens);
       this._updateStatus("completed");
       this.isWorking = false;
       return factCheckResult;
@@ -54,8 +61,32 @@ class GrokService {
     }
   }
   
-  // Private method to interact with Grok via a new tab
-  async _interactWithGrok(text) {
+  // Get Twitter tokens from storage
+  async _getStoredTwitterTokens() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([
+        'twitter_access_token',
+        'twitter_access_token_secret',
+        'twitter_bearer_token'
+      ], (result) => {
+        if (
+          result.twitter_access_token &&
+          result.twitter_access_token_secret &&
+          result.twitter_bearer_token
+        ) {
+          resolve({
+            accessToken: result.twitter_access_token,
+            accessTokenSecret: result.twitter_access_token_secret,
+            bearerToken: result.twitter_bearer_token
+          });
+        } else {
+          resolve(null);
+        }
+      });
+    });
+  }
+    // Private method to interact with Grok via a new tab
+  async _interactWithGrok(text, twitterTokens) {
     // Create a new tab to interact with Grok
     return new Promise((resolve, reject) => {
       // Format the prompt for fact-checking
@@ -67,18 +98,57 @@ class GrokService {
         error: null,
         completed: false
       };
-
-      // Open a new Grok tab
+        // Store Twitter tokens to be used by content script
+      if (twitterTokens) {
+        chrome.storage.local.set({
+          'grok_auth_tokens': {
+            accessToken: twitterTokens.accessToken,
+            accessTokenSecret: twitterTokens.accessTokenSecret,
+            bearerToken: twitterTokens.bearerToken
+          }
+        });
+      }      // Open a new Grok tab
       chrome.tabs.create(
         { url: "https://grok.x.com", active: false },
         (tab) => {
           // Store the tab ID for later
           const grokTabId = tab.id;
           
+          // Wait for tab to load then inject our script
+          chrome.tabs.onUpdated.addListener(function listener(tabId, changeInfo) {
+            if (tabId === grokTabId && changeInfo.status === 'complete') {
+              // Remove the listener
+              chrome.tabs.onUpdated.removeListener(listener);
+              
+              // Inject our script to interact with Grok
+              chrome.scripting.executeScript({
+                target: { tabId: grokTabId },
+                files: ['grok-inject.js']
+              }).then(() => {
+                console.log("Grok injection script executed");
+              }).catch(error => {
+                console.error("Error injecting script:", error);
+                responseData.error = "Failed to inject script: " + error.message;
+                responseData.completed = true;
+                chrome.tabs.remove(grokTabId);
+                reject(new Error("Failed to inject script: " + error.message));
+              });
+            }
+          });
+          
           // Set up a listener for content script messages
           const messageListener = (message, sender, sendResponse) => {
             if (sender.tab && sender.tab.id === grokTabId && message.from === "grok-content-script") {
               console.log("Received message from content script:", message);
+              
+              if (message.type === "ready") {
+                // Script is ready, send the fact-check request
+                chrome.tabs.sendMessage(grokTabId, {
+                  action: "perform-fact-check",
+                  text: prompt
+                });
+                return true;
+              }
               
               if (message.type === "fact-check-result") {
                 responseData.result = message.result;

@@ -1,3 +1,4 @@
+// Updated popup.js for FactLens with direct Twitter OAuth implementation
 import firebaseService from "./firebase-service-v3.js";
 import { authenticateWithTwitter, getTwitterTokens } from "./twitter-oauth.js";
 
@@ -9,7 +10,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     
     // Debug - log the service object
     console.log("Firebase service initialized:", firebaseService);
-    console.log("Has signInWithTwitter method:", !!firebaseService.signInWithTwitter);
     
     // Check auth state after Firebase is initialized
     checkAuthState();
@@ -71,13 +71,7 @@ document.getElementById("signIn").addEventListener("click", async () => {
     document.getElementById("result").innerText = "Starting Twitter sign-in...";
     document.getElementById("signIn").disabled = true;
     
-    console.log("Attempting Twitter sign-in");
-    
-    // Check if signInWithTwitter exists
-    if (!firebaseService || typeof firebaseService.signInWithTwitter !== 'function') {
-      console.error("signInWithTwitter is not available:", firebaseService);
-      throw new Error("Twitter authentication not available");
-    }
+    console.log("Attempting Twitter sign-in with dedicated OAuth handler");
     
     // Update UI to inform user about the popup
     document.getElementById("result").innerHTML = `
@@ -88,19 +82,42 @@ document.getElementById("signIn").addEventListener("click", async () => {
       </div>
     `;
     
-    // Sign in with Twitter using our service
-    console.log("Calling signInWithTwitter");
-      // Sign in with Twitter using our service after a short delay
+    // Use our dedicated Twitter OAuth handler
     setTimeout(async () => {
       try {
-        const result = await firebaseService.signInWithTwitter();
-        console.log("Twitter sign-in result:", result);
+        // First authenticate with Twitter
+        const twitterAuthResult = await authenticateWithTwitter();
+        console.log("Twitter OAuth successful:", twitterAuthResult);
+          // Exchange the code for tokens
+        const tokens = await getTwitterTokens(twitterAuthResult);
+        console.log("Got Twitter tokens:", tokens);
         
-        if (!result || !result.user) {
-          throw new Error("Sign-in failed - no user returned");
-        }
+        // We should ideally use a custom Firebase Auth provider
+        // but we'll simulate with anonymous auth + profile update for now
+        const result = await firebaseService.auth.signInAnonymously();
+        console.log("Firebase sign-in result:", result);
         
-        const { user, credential } = result;
+        // Store tokens for later use with the Grok API
+        await chrome.storage.local.set({
+          'twitter_access_token': tokens.accessToken,
+          'twitter_access_token_secret': tokens.accessTokenSecret,
+          'twitter_bearer_token': tokens.bearerToken
+        });
+        
+        // Update the profile with Twitter info
+        await result.user.updateProfile({
+          displayName: "X User", 
+          photoURL: "https://abs.twimg.com/sticky/default_profile_images/default_profile_normal.png"
+        });
+        
+        const user = result.user;
+        
+        // Create mock Twitter credential for database
+        const credential = {
+          providerId: "twitter.com",
+          signInMethod: "oauth",
+          accessToken: tokens.accessToken
+        };
         
         // Store user data in Realtime Database
         console.log("Saving user data");
@@ -109,9 +126,8 @@ document.getElementById("signIn").addEventListener("click", async () => {
         console.log("User data saved");
 
         // UI updates will happen in the onAuthStateChanged handler
-        document.getElementById("result").innerText = `Signed in as ${user.displayName || 'User'}`;
       } catch (error) {
-        console.error("Twitter sign-in error in setTimeout:", error);
+        console.error("Twitter sign-in error:", error);
         
         // Format error message for better user experience
         let errorMessage = error.message || 'Sign-in failed';
@@ -133,7 +149,7 @@ document.getElementById("signIn").addEventListener("click", async () => {
         document.getElementById("result").innerHTML = formattedError;
         document.getElementById("signIn").disabled = false;
       }
-    }, 500); // Small delay to ensure UI updates before popup opens
+    }, 500);
   } catch (error) {
     console.error("Twitter sign-in setup error:", error);
     document.getElementById("result").innerText = `Error: ${error.message || 'Sign-in failed'}`;
@@ -153,8 +169,7 @@ document.getElementById("signOut").addEventListener("click", async () => {
   }
 });
 
-// Auth state is checked in the checkAuthState function when popup loads
-
+// Fact checking functionality
 async function factCheckWithGrok(text) {
   // Show loading state
   document.getElementById("loading").style.display = "block";
@@ -310,6 +325,7 @@ function formatGrokResult(result) {
   return output;
 }
 
+// Add fact check button handler 
 document.getElementById("factCheck").addEventListener("click", () => {
   // First ensure we're signed in
   const user = firebaseService.getCurrentUser();

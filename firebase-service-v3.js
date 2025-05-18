@@ -1,8 +1,7 @@
 // Firebase Auth Service for Chrome Extensions
 // Version optimized for Manifest V3 CSP restrictions
 
-class FirebaseAuthService {
-  constructor() {
+class FirebaseAuthService {  constructor() {
     this.initialized = false;
     this.auth = null;
     this.database = null;
@@ -19,8 +18,9 @@ class FirebaseAuthService {
       messagingSenderId: "443168470834",
       appId: "1:443168470834:web:52150fe8e87656ef64c92b",
       measurementId: "G-N28BE2605Q",
-      // Twitter OAuth client ID - you need to get this from Twitter Developer Portal
-      twitterClientId: "21iqHVSDH2lzPSLIukYQtKOOS"
+      // Twitter OAuth client ID
+      // IMPORTANT: In the Twitter Developer Portal, you MUST register the EXACT chrome-extension://[YOUR-EXTENSION-ID].chromiumapp.org/ redirect URL
+      twitterClientId: "21iqHVSDH2lzPSLIukYQtKOOS" 
     };
   }
   
@@ -124,8 +124,7 @@ class FirebaseAuthService {
         
         // Use the verifier directly as the challenge for simplicity
         const codeChallenge = codeVerifier;
-        
-        // Build Twitter OAuth 2.0 URL
+          // Build Twitter OAuth 2.0 URL with enhanced parameters
         const authUrl = `https://twitter.com/i/oauth2/authorize` +
           `?response_type=code` +
           `&client_id=${encodeURIComponent(this.config.twitterClientId)}` +
@@ -133,7 +132,10 @@ class FirebaseAuthService {
           `&scope=tweet.read%20users.read%20offline.access` +
           `&state=${encodeURIComponent(state)}` +
           `&code_challenge=${encodeURIComponent(codeChallenge)}` +
-          `&code_challenge_method=plain`;
+          `&code_challenge_method=plain` +
+          `&force_login=false` +
+          `&allow_signup=true` +
+          `&prompt=consent`;
         
         console.log("Launching auth flow with URL:", authUrl);
         
